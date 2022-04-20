@@ -30,9 +30,53 @@ if (args.help || args.h) {
   process.exit(0)
 }
 
+const logdb  = require("./database.js");
+const express = require("express");
+const morgan = require("morgan");
+const fs = require("fs");
+app.use(express.urlencoded({ extended: true}));
+app.use(express.json());
+
 const server = app.listen(port, () => {
   console.log('App listening on port %PORT%'.replace('%PORT%',port))
 });
+
+app.use((req, res, next) => {
+  let logdata = {
+      remoteaddr: req.ip,
+      remoteuser: req.user,
+      time: Date.now(),
+      method: req.method,
+      url: req.url,
+      protocol: req.protocol,
+      httpversion: req.httpVersion,
+      status: res.statusCode,
+      referer: req.headers['referer'],
+      useragent: req.headers['user-agent']
+  };
+  const stmt = logdb.prepare('INSERT INTO accesslog (remoteaddr, remoteuser, time, method, url, protocol, httpversion, status, referer, useragent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  const info = stmt.run(logdata.remoteaddr, logdata.remoteuser, logdata.time, logdata.method, logdata.url, logdata.protocol, logdata.httpversion, logdata.status, logdata.referer, logdata.useragent);
+  next();
+})
+
+if(args.log==true){
+  const WRITESTREAM = fs.createWriteStream('access.log', { flags: 'a' });
+  app.use(morgan('combined', { stream: WRITESTREAM }));
+}
+
+if(args.debug){
+  app.get("/app/log/access", (req, res) =>{
+      try{
+          const logs = logdb.prepare('SELECT * FROM accesslog').all();
+          res.status(200).json(logs);
+      } catch(e){
+          console.error(e);
+      }
+  });
+  app.get("/app/error", (req, res) => {
+      throw new Error('Error Test Successful');
+  });
+}
 
 app.get('/app/flip/call/heads', (req, res) => {
     const result = flipACoin('heads');
